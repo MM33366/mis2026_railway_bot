@@ -9,23 +9,30 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 app = Flask(__name__)
 
-# --- Firebase 初始化邏輯 (支援雲端與本地) ---
+# --- Firebase 初始化邏輯 ---
 if 'FIREBASE_KEY_JSON' in os.environ:
-    # 這是雲端部署時使用的：從環境變數讀取
     key_dict = json.loads(os.environ['FIREBASE_KEY_JSON'])
     cred = credentials.Certificate(key_dict)
 else:
-    # 這是你在電腦測試時使用的：讀取檔案
     cred = credentials.Certificate("firebase-key.json")
 
 firebase_admin.initialize_app(cred)
 db = firestore.client()
-# ----------------------------------------
 
-# 之後記得換成你在 LINE Developers 拿到的 Token 與 Secret
+# --- LINE 設定 ---
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 
+# --- 核心功能：查詢鐵路資訊的函式 ---
+def get_train_info(text):
+    # 這裡未來可以擴充串接 TDX API 的邏輯
+    if "台中到台北" in text:
+        return "10:30 自強號 - 台中開出\n12:15 抵達台北"
+    elif "台北到台中" in text:
+        return "09:00 自強號 - 台北開出\n10:45 抵達台中"
+    return "暫時無法查詢，請嘗試輸入『查詢 台中到台北』"
+
+# --- Webhook 路由 ---
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -36,13 +43,13 @@ def callback():
         abort(400)
     return 'OK'
 
+# --- 處理訊息事件 ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text
     
-    # 簡單的邏輯判斷
+    # 邏輯判斷：包含「查詢」關鍵字則執行查詢
     if "查詢" in user_text:
-        # 這裡呼叫你寫的查詢函式 (例如：get_train_info(user_text))
         response_text = get_train_info(user_text)
     else:
         response_text = "我只是一個鐵路小助手，試著輸入『查詢 台中到台北』看看！"
