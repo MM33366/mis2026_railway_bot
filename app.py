@@ -27,10 +27,10 @@ handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 def get_train_info(text):
     # 這裡未來可以擴充串接 TDX API 的邏輯
     if "台中到台北" in text:
-        return "10:30 自強號 - 台中開出\n12:15 抵達台北"
+        return "【查詢結果】\n10:30 自強號 - 台中開出\n12:15 抵達台北"
     elif "台北到台中" in text:
-        return "09:00 自強號 - 台北開出\n10:45 抵達台中"
-    return "暫時無法查詢，請嘗試輸入『查詢 台中到台北』"
+        return "【查詢結果】\n09:00 自強號 - 台北開出\n10:45 抵達台中"
+    return "抱歉，目前僅支援查詢「台中到台北」或「台北到台中」。"
 
 # --- Webhook 路由 ---
 @app.route("/callback", methods=['POST'])
@@ -48,11 +48,11 @@ def callback():
 def handle_message(event):
     user_text = event.message.text
     
-    # 邏輯判斷：包含「查詢」關鍵字則執行查詢
-    if "查詢" in user_text:
+    # 彈性判斷：包含「到」或「查詢」關鍵字即視為請求
+    if "到" in user_text or "查詢" in user_text:
         response_text = get_train_info(user_text)
     else:
-        response_text = "我只是一個鐵路小助手，試著輸入『查詢 台中到台北』看看！"
+        response_text = "我只是一個鐵路小助手，試著輸入『台中到台北』來查詢時刻表吧！"
         
     line_bot_api.reply_message(
         event.reply_token,
