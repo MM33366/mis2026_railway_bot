@@ -38,10 +38,18 @@ def callback():
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    # 簡單測試：回應使用者
+    user_text = event.message.text
+    
+    # 簡單的邏輯判斷
+    if "查詢" in user_text:
+        # 這裡呼叫你寫的查詢函式 (例如：get_train_info(user_text))
+        response_text = get_train_info(user_text)
+    else:
+        response_text = "我只是一個鐵路小助手，試著輸入『查詢 台中到台北』看看！"
+        
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text="已收到訊息！")
+        TextSendMessage(text=response_text)
     )
 
 if __name__ == "__main__":
