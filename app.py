@@ -49,7 +49,7 @@ STATION_MAP = {
     "民雄": "4050", "嘉北": "4070", "嘉義": "4080", "水上": "4090", "南靖": "4100", 
     "後壁": "4110", "新營": "4120", "柳營": "4130", "林鳳營": "4140", "隆田": "4150", 
     "拔林": "4160", "善化": "4170", "新市": "4180", "永康": "4190", "大橋": "4200", 
-    "台南": "4220", "保安": "4250", "仁德": "4260", "中洲": "4270", "大湖": "4290", 
+    "台南": "4220", "保安": "4250", "仁德": "4260", "宗洲": "4270", "大湖": "4290", 
     "路竹": "4300", "岡山": "4310", "橋頭": "4320", "楠梓": "4330", "新左營": "4340", 
     "左營": "4350", "內惟": "4360", "美術館": "4370", "鼓山": "4380", "三塊厝": "4390", 
     "高雄": "4400", "民族": "4410", "科工館": "4420", "正義": "4430", "鳳山": "4440", 
@@ -93,7 +93,62 @@ def get_tdx_token():
         return response.json().get('access_token')
     return None
 
-# --- 🚀 升級：智慧拆解車站與日期時間 ---
+# --- 🧠 新增：核心口語時間解析器 ---
+def extract_time_advanced(text):
+    # 1. 優先處理標準的 24 小時制 (例如 15:30)
+    time_match = re.search(r'(\d{1,2}):(\d{2})', text)
+    if time_match:
+        return f"{int(time_match.group(1)):02d}:{int(time_match.group(2)):02d}"
+
+    # 2. 定義中文數字對應表與時間區段
+    cn_hours = {"十二": 12, "十一": 11, "十": 10, "九": 9, "八": 8, "七": 7, "六": 6, "五": 5, "四": 4, "三": 3, "二": 2, "兩": 2, "一": 1}
+    is_pm = any(p in text for p in ["下午", "晚上", "傍晚", "夜間", "下半天"])
+    is_am = any(p in text for p in ["早上", "上午", "凌晨", "清晨", "上半天"])
+
+    # 3. 尋找「點」或「点」字作拆分
+    if "點" in text or "点" in text:
+        keyword = "點" if "點" in text else "点"
+        parts = text.split(keyword)
+        hour_part = parts[0]
+        minute_part = parts[1] if len(parts) > 1 else ""
+
+        # A. 解析小時 (先找中文再找阿拉伯數字)
+        hour = None
+        for cn, val in cn_hours.items():
+            if cn in hour_part:
+                hour = val
+                break
+        if hour is None:
+            digit_match = re.search(r'(\d{1,2})$', hour_part)
+            if digit_match:
+                hour = int(digit_match.group(1))
+
+        # B. 如果成功抓到小時，接著解析分鐘
+        if hour is not None:
+            minute = 0
+            if "半" in minute_part:
+                minute = 30
+            elif "分" in minute_part:
+                min_digit_match = re.search(r'(\d{1,2})', minute_part)
+                if min_digit_match:
+                    minute = int(min_digit_match.group(1))
+            else:
+                # 處理像「3點30」這種後面直接連著數字的情況
+                min_digit_match = re.search(r'^(\d{1,2})', minute_part)
+                if min_digit_match:
+                    minute = int(min_digit_match.group(1))
+
+            # 4. 根據上下午制調整成 24 小時制
+            if is_pm and hour < 12:
+                hour += 12
+            elif is_am and hour == 12:
+                hour = 0
+
+            return f"{hour:02d}:{minute:02d}"
+            
+    return None
+
+# --- 🚀 智慧拆解車站與日期時間 ---
 def parse_user_input(text):
     clean_text = text.replace("查詢", "").replace(" ", "").strip()
     
@@ -122,7 +177,7 @@ def parse_user_input(text):
     tz_taiwan = timezone(timedelta(hours=8))
     now_taiwan = datetime.now(tz_taiwan)
     
-    target_date = now_taiwan.strftime("%Y-%m-%d") # 預設今天
+    target_date = now_taiwan.strftime("%Y-%m-%d")
     has_custom_date = False
     
     if "明天" in text:
@@ -132,23 +187,20 @@ def parse_user_input(text):
         target_date = (now_taiwan + timedelta(days=2)).strftime("%Y-%m-%d")
         has_custom_date = True
         
-    # 3. 抓取目標時間 (尋找例如 14:30 或 0800 這樣的數字)
-    # 支援 14:30 格式
-    time_match = re.search(r'(\d{1,2}):(\d{2})', text)
-    if time_match:
-        hr = int(time_match.group(1))
-        mn = int(time_match.group(2))
-        target_time = f"{hr:02d}:{mn:02d}"
+    # 3. 呼叫智慧時間萃取器
+    extracted_time = extract_time_advanced(text)
+    if extracted_time:
+        target_time = extracted_time
     else:
-        # 如果使用者指明了「明天」但沒打時間，預設從明天的凌晨 00:00 開始查最近3班
+        # 如果指明了特定日期但沒講時間，從凌晨 00:00 開始查
         if has_custom_date:
             target_time = "00:00"
         else:
-            target_time = now_taiwan.strftime("%H:%M") # 沒指定就用現在時間
+            target_time = now_taiwan.strftime("%H:%M") # 完全沒提時間就用當下時間
 
     return start_station, end_station, target_date, target_time
 
-# --- 🚀 升級：接收指定日期與時間進行查詢 ---
+# --- 查詢 TDX 台鐵時刻表 ---
 def get_train_info(start_station, end_station, target_date, target_time):
     start_id = STATION_MAP.get(start_station)
     end_id = STATION_MAP.get(end_station)
@@ -160,7 +212,6 @@ def get_train_info(start_station, end_station, target_date, target_time):
     if not token:
         return "系統錯誤：無法取得 TDX 授權。"
 
-    # 呼叫 TDX API，帶入指定的日期與過濾時間
     url = (
         f"https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/{start_id}/to/{end_id}/{target_date}?"
         f"$filter=OriginStopTime/DepartureTime ge '{target_time}'&"
@@ -177,7 +228,7 @@ def get_train_info(start_station, end_station, target_date, target_time):
     if not data:
         return f"📅 {target_date} {target_time} 之後，從 {start_station} 到 {end_station} 已經沒有班次囉！"
 
-    result = f"📅 查詢日期：{target_date}\n⏰ 查詢時間點：{target_time} 之後\n【🚂 台鐵最近 3 班車】\n---\n"
+    result = f"📅 查詢日期：{target_date}\n⏰ 查詢時間點：{target_time} 之後\n【🚂 台鐵最近 3 班車：{start_station} ➔ {end_station}】\n---\n"
     for item in data:
         train_no = item['DailyTrainInfo']['TrainNo']
         train_type = item['DailyTrainInfo']['TrainTypeName']['Zh_tw']
@@ -203,7 +254,6 @@ def callback():
 def handle_message(event):
     user_text = event.message.text
     
-    # 進行新版的智慧拆解
     start_station, end_station, target_date, target_time = parse_user_input(user_text)
     
     if start_station and end_station:
@@ -220,7 +270,7 @@ def handle_message(event):
         except Exception as e:
             print("Firebase 寫入失敗:", e)
     else:
-        response_text = "嗨！我是鐵路小助手 🚂\n你可以輸入：\n🔹『台北台中』(查現在最近3班)\n🔹『台北到台南 明天』(查明天一早的車)\n🔹『板橋礁溪 後天 14:30』(查指定時間)"
+        response_text = "嗨！我是鐵路小助手 🚂\n您可以輸入：\n🔹『台北台中』(查現在最近3班)\n🔹『台北到台南 明天下午三點』\n🔹『板橋礁溪 後天 14:30』"
         
     line_bot_api.reply_message(
         event.reply_token,
