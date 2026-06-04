@@ -239,7 +239,7 @@ def get_train_info(start_station, end_station, target_date, target_time):
     if not data:
         return f"📅 {target_date} {target_time} 之後，從 {start_station} 到 {end_station} 已經沒有班次囉！"
 
-    result = f"📅 查詢日期：{target_date}\n⏰ 查詢時間點：{target_time} 之後\n【台鐵最近 3 班車：{start_station} ➔ {end_station}】\n---\n"
+    result = f"📅 查詢日期：{target_date}\n⏰ 查詢時間點：{target_time} 之後\n🚂【台鐵最近 3 班車：{start_station} ➔ {end_station}】\n---\n"
     for item in data:
         train_no = item['DailyTrainInfo']['TrainNo']
         train_type = item['DailyTrainInfo']['TrainTypeName']['Zh_tw']
