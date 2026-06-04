@@ -93,6 +93,7 @@ def get_tdx_token():
         return response.json().get('access_token')
     return None
 
+# --- 🧠 核心口語時間解析器 ---
 def extract_time_advanced(text):
     time_match = re.search(r'(\d{1,2}):(\d{2})', text)
     if time_match:
@@ -100,6 +101,7 @@ def extract_time_advanced(text):
 
     hour = None
     minute = 0
+
     match = re.search(r'(\d{1,2})\s*[點点\.]\s*(\d{1,2})?', text)
     if match:
         hour = int(match.group(1))
@@ -113,15 +115,18 @@ def extract_time_advanced(text):
             parts = text.split(keyword)
             hour_part = parts[0]
             minute_part = parts[1] if len(parts) > 1 else ""
+            
             cn_hours = {"十二": 12, "十一": 11, "十": 10, "九": 9, "八": 8, "七": 7, "六": 6, "五": 5, "四": 4, "三": 3, "二": 2, "兩": 2, "一": 1}
             for cn, val in cn_hours.items():
                 if cn in hour_part:
                     hour = val
                     break
+            
             if hour is None:
                 digit_match = re.search(r'(\d{1,2})$', hour_part)
                 if digit_match:
                     hour = int(digit_match.group(1))
+
             if "半" in minute_part:
                 minute = 30
             else:
@@ -139,30 +144,43 @@ def extract_time_advanced(text):
     if hour is not None:
         is_pm = any(p in text for p in ["下午", "晚上", "傍晚", "夜間", "下半天"])
         is_am = any(p in text for p in ["早上", "上午", "凌晨", "清晨", "上半天"])
+        
         if is_pm and hour < 12:
             hour += 12
         elif is_am and hour == 12:
             hour = 0
+
         return f"{hour:02d}:{minute:02d}"
+            
     return None
 
+# --- 🚀 智慧拆解車站與日期時間 ---
 def parse_user_input(text):
     clean_text = text.replace("查詢", "").replace(" ", "").strip()
+    
+    # 1. 🎯 全新升級：特徵位置搜尋法（完全免疫「到」、「往」等字眼干擾）
     matches = []
     for station in STATION_MAP.keys():
         if station in clean_text:
             pos = clean_text.find(station)
             matches.append((pos, station))
+            
+    # 按照在句子中出現的順序排序 (例如：台中到沙鹿 -> 台中在前[pos小]，沙鹿在後[pos大])
     matches.sort(key=lambda x: x[0])
+    
     if len(matches) >= 2:
         start_station = matches[0][1]
         end_station = matches[1][1]
     else:
         return None, None, None, None
+
+    # 2. 計算目標日期 (台北時區)
     tz_taiwan = timezone(timedelta(hours=8))
     now_taiwan = datetime.now(tz_taiwan)
+    
     target_date = now_taiwan.strftime("%Y-%m-%d")
     has_custom_date = False
+    
     if "大後天" in text:
         target_date = (now_taiwan + timedelta(days=3)).strftime("%Y-%m-%d")
         has_custom_date = True
@@ -173,61 +191,65 @@ def parse_user_input(text):
         target_date = (now_taiwan + timedelta(days=1)).strftime("%Y-%m-%d")
         has_custom_date = True
     else:
+        # 🌟 加碼功能：辨識如 6/23、06-23、6月23日 等明確數字日期
         date_match = re.search(r'(\d{1,2})[/\-月](\d{1,2})', text)
         if date_match:
             month = int(date_match.group(1))
             day = int(date_match.group(2))
             target_date = f"2026-{month:02d}-{day:02d}"
             has_custom_date = True
+        
+    # 3. 呼叫時間萃取器
     extracted_time = extract_time_advanced(text)
     if extracted_time:
         target_time = extracted_time
     else:
-        target_time = "00:00" if has_custom_date else now_taiwan.strftime("%H:%M")
+        if has_custom_date:
+            target_time = "00:00"
+        else:
+            target_time = now_taiwan.strftime("%H:%M")
+
     return start_station, end_station, target_date, target_time
 
+# --- 查詢 TDX 台鐵時刻表 ---
 def get_train_info(start_station, end_station, target_date, target_time):
     start_id = STATION_MAP.get(start_station)
     end_id = STATION_MAP.get(end_station)
+
     if not start_id or not end_id:
         return "找不到該車站，請確認名稱是否正確喔！"
+
     token = get_tdx_token()
     if not token:
         return "系統錯誤：無法取得 TDX 授權。"
+
     url = (
         f"https://tdx.transportdata.tw/api/basic/v2/Rail/TRA/DailyTimetable/OD/{start_id}/to/{end_id}/{target_date}?"
         f"$filter=OriginStopTime/DepartureTime ge '{target_time}'&"
         f"$top=3&$format=JSON"
     )
+    
     headers = {"authorization": f"Bearer {token}"}
     response = requests.get(url, headers=headers)
+    
     if response.status_code != 200:
         return "查詢台鐵 API 失敗，請稍後再試。"
+
     data = response.json()
     if not data:
         return f"📅 {target_date} {target_time} 之後，從 {start_station} 到 {end_station} 已經沒有班次囉！"
+
     result = f"📅 查詢日期：{target_date}\n⏰ 查詢時間點：{target_time} 之後\n【🚂 台鐵最近 3 班車：{start_station} ➔ {end_station}】\n---\n"
     for item in data:
         train_no = item['DailyTrainInfo']['TrainNo']
         train_type = item['DailyTrainInfo']['TrainTypeName']['Zh_tw']
         dep_time = item['OriginStopTime']['DepartureTime']
         arr_time = item['DestinationStopTime']['ArrivalTime']
+        
         result += f"🚄 {train_type} ({train_no}車次)\n"
         result += f"出發: {dep_time} | 抵達: {arr_time}\n---\n"
+        
     return result.strip()
-
-def get_cached_result(start, end, date, time):
-    ten_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=10)
-    query = db.collection("user_queries") \
-              .where("start_station", "==", start) \
-              .where("end_station", "==", end) \
-              .where("target_date", "==", date) \
-              .where("target_time", "==", time) \
-              .where("timestamp", ">", ten_minutes_ago) \
-              .limit(1).get()
-    for doc in query:
-        return doc.to_dict().get("response_text")
-    return None
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -242,25 +264,29 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_text = event.message.text
-    start, end, date, target_time = parse_user_input(user_text)
-    if start and end:
-        cached_response = get_cached_result(start, end, date, target_time)
-        if cached_response:
-            response_text = cached_response
-        else:
-            response_text = get_train_info(start, end, date, target_time)
+    
+    start_station, end_station, target_date, target_time = parse_user_input(user_text)
+    
+    if start_station and end_station:
+        response_text = get_train_info(start_station, end_station, target_date, target_time)
+        try:
             db.collection("user_queries").add({
                 "user_id": event.source.user_id,
-                "start_station": start,
-                "end_station": end,
-                "target_date": date,
+                "start_station": start_station,
+                "end_station": end_station,
+                "target_date": target_date,
                 "target_time": target_time,
-                "response_text": response_text,
                 "timestamp": firestore.SERVER_TIMESTAMP
             })
+        except Exception as e:
+            print("Firebase 寫入失敗:", e)
     else:
         response_text = "嗨！我是鐵路小助手 🚂\n您可以輸入：\n🔹『台北台中』(查現在最近3班)\n🔹『台北到台南 明天下午三點』\n🔹『6/23 15:00 台中到沙鹿』"
-    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=response_text))
+        
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=response_text)
+    )
 
 if __name__ == "__main__":
     app.run()
