@@ -12,7 +12,6 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 app = Flask(__name__)
 
-# --- Firebase 初始化 ---
 if 'FIREBASE_KEY_JSON' in os.environ:
     key_dict = json.loads(os.environ['FIREBASE_KEY_JSON'])
     cred = credentials.Certificate(key_dict)
@@ -21,13 +20,11 @@ else:
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# --- LINE 與 TDX 環境變數 ---
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 TDX_CLIENT_ID = os.environ.get('TDX_CLIENT_ID')
 TDX_CLIENT_SECRET = os.environ.get('TDX_CLIENT_SECRET')
 
-# --- 🗺️ 全台台鐵車站代碼字典 ---
 STATION_MAP = {
     "基隆": "0900", "三坑": "0910", "八堵": "0930", "七堵": "0920", "百福": "0940", 
     "五堵": "0950", "汐止": "0960", "汐科": "0970", "南港": "0980", "松山": "0990", 
@@ -93,7 +90,6 @@ def get_tdx_token():
         return response.json().get('access_token')
     return None
 
-# --- 🧠 核心口語時間解析器 ---
 def extract_time_advanced(text):
     time_match = re.search(r'(\d{1,2}):(\d{2})', text)
     if time_match:
@@ -154,18 +150,15 @@ def extract_time_advanced(text):
             
     return None
 
-# --- 🚀 智慧拆解車站與日期時間 ---
 def parse_user_input(text):
     clean_text = text.replace("查詢", "").replace(" ", "").strip()
     
-    # 1. 🎯 全新升級：特徵位置搜尋法（完全免疫「到」、「往」等字眼干擾）
     matches = []
     for station in STATION_MAP.keys():
         if station in clean_text:
             pos = clean_text.find(station)
             matches.append((pos, station))
             
-    # 按照在句子中出現的順序排序 (例如：台中到沙鹿 -> 台中在前[pos小]，沙鹿在後[pos大])
     matches.sort(key=lambda x: x[0])
     
     if len(matches) >= 2:
@@ -174,7 +167,6 @@ def parse_user_input(text):
     else:
         return None, None, None, None
 
-    # 2. 計算目標日期 (台北時區)
     tz_taiwan = timezone(timedelta(hours=8))
     now_taiwan = datetime.now(tz_taiwan)
     
@@ -191,7 +183,6 @@ def parse_user_input(text):
         target_date = (now_taiwan + timedelta(days=1)).strftime("%Y-%m-%d")
         has_custom_date = True
     else:
-        # 🌟 加碼功能：辨識如 6/23、06-23、6月23日 等明確數字日期
         date_match = re.search(r'(\d{1,2})[/\-月](\d{1,2})', text)
         if date_match:
             month = int(date_match.group(1))
@@ -199,7 +190,6 @@ def parse_user_input(text):
             target_date = f"2026-{month:02d}-{day:02d}"
             has_custom_date = True
         
-    # 3. 呼叫時間萃取器
     extracted_time = extract_time_advanced(text)
     if extracted_time:
         target_time = extracted_time
@@ -211,7 +201,6 @@ def parse_user_input(text):
 
     return start_station, end_station, target_date, target_time
 
-# --- 查詢 TDX 台鐵時刻表 ---
 def get_train_info(start_station, end_station, target_date, target_time):
     start_id = STATION_MAP.get(start_station)
     end_id = STATION_MAP.get(end_station)
