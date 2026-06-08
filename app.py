@@ -91,6 +91,13 @@ def get_tdx_token():
     return None
 
 def extract_time_advanced(text):
+    # 🛠️【修改】優先判定純 4 碼數字時間（例如 1530 -> 15:30）
+    pure_four_digits = re.search(r'\b(\d{2})(\d{2})\b', text)
+    if pure_four_digits:
+        h, m = int(pure_four_digits.group(1)), int(pure_four_digits.group(2))
+        if 0 <= h < 24 and 0 <= m < 60:
+            return f"{h:02d}:{m:02d}"
+        
     time_match = re.search(r'(\d{1,2}):(\d{2})', text)
     if time_match:
         return f"{int(time_match.group(1)):02d}:{int(time_match.group(2)):02d}"
@@ -152,12 +159,22 @@ def extract_time_advanced(text):
 
 def parse_user_input(text):
     clean_text = text.replace("查詢", "").replace(" ", "").strip()
-    
+
+    # 🛠️【新增】步驟一：在比對車站前，先將輸入內的所有同義字替換成標準名稱
+    for synonym, standard_name in SYNONYM_MAP.items():
+        clean_text = clean_text.replace(synonym, standard_name)
+        
     matches = []
-    for station in STATION_MAP.keys():
-        if station in clean_text:
+    # 🛠️【修改】步驟二：將車站依照名字長度由長到短排序，避免「新左營」被「左營」重複抓取
+    sorted_stations = sorted(STATION_MAP.keys(), key=len, reverse=True)
+    covered_text = clean_text
+    
+    for station in sorted_stations:
+        if station in covered_text:
             pos = clean_text.find(station)
             matches.append((pos, station))
+            # 🛠️【修改】比對到長站名後，就把該段字抹除(用X替代)，防止裡面的短站名再次觸發
+            covered_text = covered_text.replace(station, "X" * len(station))
             
     matches.sort(key=lambda x: x[0])
     
